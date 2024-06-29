@@ -39,58 +39,118 @@ class BookController {
          * Task: Optimise the query to take advantage of the already computed field.
          * Hint: Take a look at the shape of the Book documents using MongoDB Compass.
          */
-        const books = await collections?.books?.aggregate<Book>([
+        const book = await collections?.books?.findOne<Book>(
             {
-                $match: {
-                    _id: bookId
-                },
-            },
-            {
-                $lookup: {
-                    from: 'issueDetails',
-                    localField: '_id',
-                    foreignField: 'book._id',
-                    pipeline: [
-                        {
-                            $match: {
-                                $or: [
-                                    { recordType: 'reservation' },
-                                    { recordType: 'borrowedBook', returned: false }
-                                ]
-                            }
-                        }
-                    ],
-                    as: 'details'
-                }
-            },
-            {
-                $set: {
-                    available: {
-                        $subtract: ['$totalInventory', { $size: '$details' }]
-                    }
-                }
-            },
-            {
-                $unset: 'details'
-            },
-        ]).toArray();
+                _id: bookId
+            }
+        );
 
-        if (!books?.length) {
-            return;
-        }
+        return book;
+        // const books = await collections?.books?.aggregate<Book>([
+        //     {
+        //         $match: {
+        //             _id: bookId
+        //         },
+        //     },
+        //     {
+        //         $lookup: {
+        //             from: 'issueDetails',
+        //             localField: '_id',
+        //             foreignField: 'book._id',
+        //             pipeline: [
+        //                 {
+        //                     $match: {
+        //                         $or: [
+        //                             { recordType: 'reservation' },
+        //                             { recordType: 'borrowedBook', returned: false }
+        //                         ]
+        //                     }
+        //                 }
+        //             ],
+        //             as: 'details'
+        //         }
+        //     },
+        //     {
+        //         $set: {
+        //             available: {
+        //                 $subtract: ['$totalInventory', { $size: '$details' }]
+        //             }
+        //         }
+        //     },
+        //     {
+        //         $unset: 'details'
+        //     },
+        // ]).toArray();
 
-        return books[0];
+        // if (!books?.length) {
+        //     return;
+        // }
+
+        // return books[0];
     }
 
     public async searchBooks(query: string): Promise<Book[]> {
-        const books = await collections?.books?.find(
+        const vector = await getEmbeddings(query);
+        const aggregationPipeline = [
             {
-                $or: [
-                    {title: {$regex: new RegExp(query, 'i')}},
-                    {'authors.name': {$regex: new RegExp(query, 'i')}},
-                ]
-            }).limit(25).toArray();
+            $vectorSearch: {
+                queryVector:  vector,
+                path: 'embeddings',
+                numCandidates: 100,
+                index: 'vectorsearch',
+                limit: 100,
+            }
+            }
+        ];
+        const books = await collections?.books?.aggregate(aggregationPipeline).toArray() as Book[];
         return books;
+        // const aggregationPipeline = [
+        //     {
+        //         $search: {
+        //             index: 'fulltextsearch',
+        //             "compound": {
+        //                 "must": [
+        //                     {
+        //                         "text": {
+        //                             query,
+        //                             "path": ["title", "authors.name", "genres"],
+        //                             fuzzy: {
+        //                                 maxEdits: 2
+        //                             }
+        //                         }
+        //                     }
+        //                 ],
+        //                 "should": [
+        //                     {
+        //                         "equals": {
+        //                             "value": true,
+        //                             "path": "bookOfTheMonth",
+        //                             "score": {
+        //                                 "boost": { value: 10 }
+        //                             }
+        //                         }
+        //                     },
+        //                     {
+        //                         "range": {
+        //                             path: "pages",
+        //                             lt: 80
+        //                         }
+        //                     }
+        //                 ]
+        //             }
+        //         }
+        //     }
+        // ];
+        // const books = await collections?.books?.aggregate(aggregationPipeline).toArray() as Book[];
+        // return books;
+        // const books = await collections?.books?.find(
+        //     {
+        //         $or: [
+        //             {title: {$regex: new RegExp(query, 'i')}},
+        //             {'authors.name': {$regex: new RegExp(query, 'i')}},
+        //         ]
+        //     }).limit(25).toArray();
+        // return books;
     }
 
     public async createBook(book: Book): Promise<InsertOneResult> {
